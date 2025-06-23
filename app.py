@@ -1,5 +1,3 @@
-# Enhanced app.py with real-time updates and improved UI
-
 import streamlit as st
 from dashboard.comment_processor import CommentProcessor
 from dashboard.content_manager import ContentManager
