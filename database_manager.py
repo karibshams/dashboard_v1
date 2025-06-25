@@ -1,4 +1,3 @@
-# database_manager.py - Database operations with MongoDB
 from pymongo import MongoClient
 from datetime import datetime
 import logging
@@ -24,7 +23,13 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Failed to connect to MongoDB: {e}")
             raise
-
+    def get_analytics_summary(self):
+        return {
+        "total_comments": self.comments.count_documents({}),
+        "total_replies": self.replies.count_documents({}),
+        "response_rate": 0,  # You can calculate this if you want
+        "avg_response_time": 0  # You can calculate this if you want
+         }
     def _setup_collections(self):
         """Setup collections and indexes"""
         # Comments collection
@@ -92,3 +97,18 @@ class DatabaseManager:
         """Get owner activity flag from DB"""
         doc = self.settings.find_one({"key": "owner_active"})
         return doc["value"] if doc else False
+    def filter_comments(self, platforms=None, comment_types=None, time_range=None, limit=50):
+        """
+        Fetch comments with filters.
+        platforms: list of platform names
+        comment_types: list of comment types
+        time_range: tuple of (start_datetime, end_datetime) or None
+        """
+        query = {}
+        if platforms:
+            query["platform"] = {"$in": platforms}
+        if comment_types:
+            query["comment_type"] = {"$in": comment_types}
+        if time_range and isinstance(time_range, tuple) and len(time_range) == 2:
+            query["created_at"] = {"$gte": time_range[0], "$lte": time_range[1]}
+        return list(self.comments.find(query).sort("created_at", -1).limit(limit))
