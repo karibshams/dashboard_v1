@@ -1,9 +1,10 @@
 import streamlit as st
+from dashboard.database_manager import DatabaseManager
 from dashboard.comment_processor import CommentProcessor
 from dashboard.content_manager import ContentManager
 import os
 import json
-import requests
+
 from datetime import datetime, timedelta
 import time
 from dotenv import load_dotenv
@@ -13,9 +14,10 @@ import plotly.graph_objects as go
 
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-API_URL = "http://localhost:8000"
+
 
 # Initialize processors
+db = DatabaseManager()
 comment_processor = CommentProcessor(OPENAI_API_KEY)
 content_manager = ContentManager(OPENAI_API_KEY)
 
@@ -123,11 +125,10 @@ with st.sidebar:
     
     # Owner Activity Toggle
     try:
-        resp = requests.get(f"{API_URL}/owner/activity")
-        owner_active = resp.json().get("active", False)
-    except:
+        owner_active = db.get_owner_activity()
+    except Exception as e:
         owner_active = False
-        st.error("API connection failed")
+        st.error(f"DB error: {e}")
     
     col1, col2 = st.columns(2)
     with col1:
@@ -138,11 +139,11 @@ with st.sidebar:
         new_owner_active = st.toggle("Owner Control", value=owner_active)
         if new_owner_active != owner_active:
             try:
-                requests.post(f"{API_URL}/owner/activity", json={"active": new_owner_active})
+                db.set_owner_activity(new_owner_active)
                 st.success("Mode updated!")
                 st.rerun()
-            except:
-                st.error("Failed to update mode")
+            except Exception as e:
+                st.error(f"Failed to update mode: {e}")
     
     st.markdown("---")
     
@@ -162,21 +163,41 @@ with st.sidebar:
         ["lead", "praise", "question", "complaint", "general"],
         default=["lead", "praise", "question", "complaint", "general"]
     )
-    
+    from datetime import datetime, timedelta
     # Time range
     time_range = st.selectbox(
         "Time Range",
         ["Last Hour", "Last 24 Hours", "Last 7 Days", "Last 30 Days", "All Time"]
     )
-    
+    if time_range == "Last Hour":
+     start = datetime.now() - timedelta(hours=1)
+    elif time_range == "Last 24 Hours":
+     start = datetime.now() - timedelta(days=1)
+    elif time_range == "Last 7 Days":
+     start = datetime.now() - timedelta(days=7)
+    elif time_range == "Last 30 Days":
+     start = datetime.now() - timedelta(days=30)
+    else:
+     start = None
+
+    if start:
+     time_tuple = (start, datetime.now())
+    else:
+     time_tuple = None
+
+    comments = db.filter_comments(
+    platforms=platforms,
+    comment_types=comment_types,
+    time_range=time_tuple,
+    limit=50
+     )
     # Analytics summary
     st.markdown("---")
     st.subheader("📊 Quick Stats")
     
     # Fetch analytics
     try:
-        analytics_resp = requests.get(f"{API_URL}/analytics/summary")
-        analytics = analytics_resp.json()
+         analytics = db.get_analytics_summary()
     except:
         analytics = {
             "total_comments": 0,
@@ -222,8 +243,7 @@ with tab1:
     }
     
     try:
-        resp = requests.get(f"{API_URL}/comments/filtered", params=params)
-        comments = resp.json().get("comments", [])
+        pending_replies = db.get_pending_replies(limit=50)
     except:
         comments = []
         st.error("Failed to fetch comments")
@@ -266,7 +286,7 @@ with tab1:
                             if not comment.get('has_reply'):
                                 if st.button("🤖 AI Reply", key=f"ai_{comment['id']}"):
                                     # Trigger AI reply
-                                    requests.post(f"{API_URL}/comments/{comment['id']}/ai-reply")
+                                    db.update_reply_status(str(comment["_id"]), "approved")
                                     st.success("AI reply generated!")
                                     time.sleep(1)
                                     st.rerun()
@@ -275,29 +295,29 @@ with tab1:
                             if st.button("👁️ View", key=f"view_{comment['id']}"):
                                 st.session_state.selected_comment = comment
 
-# Tab 2: AI Reply Queue
+
 with tab2:
     st.subheader("🤖 AI Generated Replies - Pending Approval")
     
-    # Fetch pending AI replies
+    
     try:
-        resp = requests.get(f"{API_URL}/replies/pending", params={"limit": 50})
-        pending_replies = resp.json().get("replies", [])
+        pending_replies = db.get_pending_replies(limit=50)
+        
     except:
         pending_replies = []
     
     if not pending_replies:
         st.info("No pending AI replies. All caught up! 🎉")
     else:
-        # Bulk approve button
+        
         if st.button("✅ Approve All Visible"):
             for reply in pending_replies:
-                requests.post(f"{API_URL}/reply/approve", json={"reply_id": str(reply["_id"])})
+                db.update_reply_status(str(reply["_id"]), "approved")
             st.success("All replies approved!")
             time.sleep(1)
             st.rerun()
         
-        # Display pending replies
+        
         for reply in pending_replies:
             with st.expander(f"Reply to {reply.get('author', 'Unknown')} on {reply.get('platform', '')}"):
                 col1, col2 = st.columns([3, 1])
@@ -328,15 +348,13 @@ with tab2:
                 with col2:
                     st.markdown("<br>", unsafe_allow_html=True)
                     if st.button("✅ Approve", key=f"approve_{reply['_id']}"):
-                        requests.post(f"{API_URL}/reply/approve", 
-                                    json={"reply_id": str(reply["_id"])})
+                        db.update_reply_status(str(reply["_id"]), "approved")
                         st.success("Approved!")
                         time.sleep(0.5)
                         st.rerun()
                     
                     if st.button("❌ Reject", key=f"reject_{reply['_id']}"):
-                        requests.post(f"{API_URL}/reply/reject", 
-                                    json={"reply_id": str(reply["_id"])})
+                        db.update_reply_status(str(reply["_id"]), "approved")
                         st.warning("Rejected")
                         time.sleep(0.5)
                         st.rerun()
@@ -418,11 +436,9 @@ with tab4:
     
     # Fetch analytics data
     try:
-        resp = requests.get(f"{API_URL}/analytics/detailed", 
-                          params={"start_date": date_range[0], "end_date": date_range[1]})
-        analytics_data = resp.json()
+        analytics = db.get_analytics_summary()  
     except:
-        analytics_data = {}
+        analytics= {}
     
     # Display metrics
     col1, col2, col3, col4 = st.columns(4)
@@ -434,8 +450,8 @@ with tab4:
             <p>↑ {}% from last period</p>
         </div>
         """.format(
-            analytics_data.get('total_comments', 0),
-            analytics_data.get('comment_growth', 0)
+            analytics.get('total_comments', 0),
+            analytics.get('comment_growth', 0)
         ), unsafe_allow_html=True)
     
     with col2:
@@ -446,8 +462,8 @@ with tab4:
             <p>{} auto-approved</p>
         </div>
         """.format(
-            analytics_data.get('total_replies', 0),
-            analytics_data.get('auto_approved', 0)
+            analytics.get('total_replies', 0),
+            analytics.get('auto_approved', 0)
         ), unsafe_allow_html=True)
     
     with col3:
@@ -458,8 +474,8 @@ with tab4:
             <p>↓ {} min faster</p>
         </div>
         """.format(
-            analytics_data.get('avg_response_time', 0),
-            analytics_data.get('response_improvement', 0)
+            analytics.get('avg_response_time', 0),
+            analytics.get('response_improvement', 0)
         ), unsafe_allow_html=True)
     
     with col4:
@@ -469,7 +485,7 @@ with tab4:
             <h1>{}%</h1>
             <p>positive comments</p>
         </div>
-        """.format(analytics_data.get('positive_sentiment_pct', 0)), unsafe_allow_html=True)
+        """.format(analytics.get('positive_sentiment_pct', 0)), unsafe_allow_html=True)
     
     # Charts
     st.markdown("### 📈 Trends")
@@ -478,27 +494,27 @@ with tab4:
     
     with col1:
         # Comments by platform
-        if analytics_data.get('platform_breakdown'):
+        if analytics.get('platform_breakdown'):
             fig_platform = px.pie(
-                values=list(analytics_data['platform_breakdown'].values()),
-                names=list(analytics_data['platform_breakdown'].keys()),
+                values=list(analytics['platform_breakdown'].values()),
+                names=list(analytics['platform_breakdown'].keys()),
                 title="Comments by Platform"
             )
             st.plotly_chart(fig_platform, use_container_width=True)
     
     with col2:
         # Comment types
-        if analytics_data.get('comment_types'):
+        if analytics.get('comment_types'):
             fig_types = px.bar(
-                x=list(analytics_data['comment_types'].keys()),
-                y=list(analytics_data['comment_types'].values()),
+                x=list(analytics['comment_types'].keys()),
+                y=list(analytics['comment_types'].values()),
                 title="Comment Types Distribution"
             )
             st.plotly_chart(fig_types, use_container_width=True)
     
     # Time series
-    if analytics_data.get('daily_stats'):
-        df_daily = pd.DataFrame(analytics_data['daily_stats'])
+    if analytics.get('daily_stats'):
+        df_daily = pd.DataFrame(analytics['daily_stats'])
         fig_timeline = go.Figure()
         
         fig_timeline.add_trace(go.Scatter(
