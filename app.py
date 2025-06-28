@@ -13,11 +13,12 @@ import plotly.express as px
 import plotly.graph_objects as go
 
 load_dotenv()
+db = DatabaseManager(connection_string=os.getenv("POSTGRES_URL"))
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 
 # Initialize processors
-db = DatabaseManager()
+
 comment_processor = CommentProcessor(OPENAI_API_KEY)
 content_manager = ContentManager(OPENAI_API_KEY)
 
@@ -92,7 +93,7 @@ st.markdown("""
 
     /* Metric cards */
     div.metric-card {
-        background-color: white;
+        background-color: blue;
         padding: 20px;
         border-radius: 10px;
         text-align: center;
@@ -214,15 +215,15 @@ with st.sidebar:
         st.metric("Response Rate", f"{analytics.get('response_rate', 0):.1f}%")
         st.metric("Avg Response Time", f"{analytics.get('avg_response_time', 0):.1f}m")
 
-# Main content area
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "📥 Live Comment Stream", 
     "🤖 AI Reply Queue", 
     "📝 Content Generator",
     "📊 Analytics",
-    "⚙️ Settings"
+    "⚙️ Settings",
+    "🧪 Test AI Reply"
 ])
-
 # Tab 1: Live Comment Stream
 with tab1:
     col1, col2, col3 = st.columns([3, 1, 1])
@@ -589,6 +590,70 @@ if st.session_state.auto_refresh:
     st.rerun()
 
 # Footer
+st.markdown("---")
+st.markdown(
+    "<center>Built with ❤️ for Ervin | AI-Powered Social Media Management</center>", 
+    unsafe_allow_html=True
+)
+# ... your tab5 (Settings) code ...
+
+with tab6:
+    st.subheader("🧪 Test AI Reply")
+    with st.form("ai_test_form"):
+        test_comment = st.text_area("Enter a comment to test AI reply", "")
+        manual_reply = st.text_area("Or write your own reply (optional)", "")
+        submit = st.form_submit_button("Get AI Reply / Save Reply")
+
+    if submit:
+        if not test_comment.strip():
+            st.warning("Please enter a comment.")
+        else:
+            ai_reply = None
+            if not manual_reply.strip():
+                # Generate AI reply
+                with st.spinner("Generating AI reply..."):
+                    try:
+                        ai_reply = comment_processor.generate_reply(test_comment)
+                        st.success("AI Reply generated!")
+                    except Exception as e:
+                        st.error(f"AI error: {e}")
+            else:
+                ai_reply = manual_reply
+
+            st.markdown("**AI Reply:**")
+            st.info(ai_reply)
+
+            # Save to database
+            try:
+                # Save comment
+                comment_data = {
+                    "platform": "test",
+                    "text": test_comment,
+                    "author": "Manual",
+                    "status": "test",
+                    "created_at": datetime.now()
+                }
+                comment_id= db.save_comment(comment_data)
+                # Save reply
+                reply_data = {
+                    "comment_id": comment_id,  # You can link to the comment if your DB supports it
+                    "reply": ai_reply,
+                    "status": "approved",
+                    "created_at": datetime.now(),
+                    "author": "AI" if not manual_reply.strip() else "Manual",
+                    "platform": "test",
+                    "original_comment": test_comment
+                }
+                db.save_reply(reply_data)
+                st.success("Comment and reply saved to database!")
+            except Exception as e:
+                st.error(f"DB error: {e}")
+
+# (Then your auto-refresh and footer code)
+if st.session_state.auto_refresh:
+    time.sleep(10)
+    st.rerun()
+
 st.markdown("---")
 st.markdown(
     "<center>Built with ❤️ for Ervin | AI-Powered Social Media Management</center>", 
