@@ -3,9 +3,11 @@ from .ghl_integration import GHLIntegrator
 from typing import Dict, List
 from datetime import datetime
 import logging
-
+import openai
+import os
 from . import facebook_integration, instagram_integration, youtube_integration, linkedin_integration, twitter_integration
 from .database_manager import DatabaseManager  # Add the DatabaseManager import
+
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +17,20 @@ class CommentProcessor:
         self.ai_processor = AIProcessor(openai_api_key)
         self.ghl_integrator = GHLIntegrator(ghl_api_key)
         self.db = db  # Pass the database manager instance to store data
+        openai.api_key = openai_api_key  # Set the API key directly
+
+    def generate_reply(self, comment_text):
+        # Simple OpenAI completion example (adjust as needed)
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",  # Updated to use the new API
+            messages=[
+                {"role": "system", "content": "You are a helpful social media assistant."},
+                {"role": "user", "content": comment_text}
+            ],
+            max_tokens=100,
+            temperature=0.7
+        )
+        return response.choices[0].message['content'].strip()
 
     def process_comment(self, comment_data: Dict) -> Dict:
         """Main workflow to process incoming comments"""
