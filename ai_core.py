@@ -5,7 +5,33 @@ import json
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 from enum import Enum
+import openai
 import logging
+import os
+
+class AIProcessor:
+    def __init__(self, openai_api_key: str):
+        """Initialize AI processor with OpenAI API key"""
+        openai.api_key = openai_api_key  # Set the API key directly
+        self.brand_voice = {
+            "tone": "inspirational, authentic, faith-based",
+            "style": "conversational, encouraging, professional",
+            "values": ["faith", "motivation", "community", "growth"],
+            "avoid": ["overly promotional", "generic responses", "religious preaching"]
+        }
+
+    def generate_reply(self, prompt: str, model="gpt-3.5-turbo"):
+        """Generate a reply based on the prompt."""
+        response = openai.ChatCompletion.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": "You are a helpful social media assistant."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=200,
+            temperature=0.7,
+        )
+        return response.choices[0].message["content"]
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
